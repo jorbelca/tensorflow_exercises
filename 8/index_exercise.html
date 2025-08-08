@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <!-- Importar TensorFlow.js desde CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  </head>
+  <body></body>
+
+  <script>
+    // Función asíncrona auto-ejecutable para usar await
+    (async function () {
+      // Crear datos de entrada y salida compatibles con el modelo
+      const numSamples = 100;
+      const numFeatures = 5;
+      const numClasses = 4;
+      // xs: matriz [numSamples, numFeatures] con valores aleatorios
+      const xs = tf.randomNormal([numSamples, numFeatures]);
+      // ys: matriz [numSamples, numClasses] con one-hot encoding aleatorio
+      const ysArray = [];
+      for (let i = 0; i < numSamples; i++) {
+        const label = Math.floor(Math.random() * numClasses);
+        const oneHot = Array(numClasses).fill(0);
+        oneHot[label] = 1;
+        ysArray.push(oneHot);
+      }
+      const ys = tf.tensor2d(ysArray, [numSamples, numClasses]);
+      // Print the progress on each epoch
+      const printCallback = {
+        onEpochEnd: (epoch, log) => {
+          console.log(epoch, log);
+        },
+      };
+
+      // Create the model
+
+      const model = tf.sequential();
+      model.add(
+        tf.layers.dense({
+          inputShape: [5],
+          units: 5,
+        })
+      );
+      model.add(
+        tf.layers.dense({
+          units: 10,
+          activation: "sigmoid",
+        })
+      );
+      model.add(
+        tf.layers.dense({
+          units: 7,
+          activation: "relu",
+        })
+      );
+      model.add(
+        tf.layers.dense({
+          units: 4,
+          activation: "softmax",
+        })
+      );
+      // Compile for training
+      model.compile({
+        optimizer: "adam",
+        loss: "categoricalCrossentropy",
+      });
+      // Train and print timing
+      console.time("Training");
+      await model.fit(xs, ys, {
+        epochs: 100,
+        callbacks: printCallback,
+        batchSize: 64,
+      });
+      console.timeEnd("Training");
+      // evaluate the model
+      const next = tf.tensor([7]);
+      const answer = model.predict(next);
+      answer.print();
+      // Cleanup!
+      answer.dispose();
+      xs.dispose();
+      ys.dispose();
+      model.dispose();
+    })();
+  </script>
+</html>
