@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Testing model</title>
+    <style>
+      body {
+        background: #f7f7f7;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        min-height: 100vh;
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+      }
+      h1 {
+        margin-top: 40px;
+        color: #333;
+        font-size: 2.2rem;
+        letter-spacing: 1px;
+      }
+      #sketchpad {
+        background: #fff;
+        border: 2px solid #bbb;
+        border-radius: 12px;
+        margin-top: 32px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        width: 600px;
+        height: 600px;
+        display: block;
+        touch-action: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Testing Model</h1>
+
+    <button onclick="cleanCanvas()">CLEAN</button>
+    <canvas id="sketchpad" width="600" height="600"></canvas>
+
+    <div>
+      <h2>Results</h2>
+      <div id="results">
+        <div id="ravenclaw" style="opacity: 0">Ravenclaw</div>
+        <div id="gryffindor" style="opacity: 0">Gryffindor</div>
+        <div id="hufflepuff" style="opacity: 0">Hufflepuff</div>
+        <div id="slytherin" style="opacity: 0">Slytherin</div>
+      </div>
+    </div>
+  </body>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script>
+    // Load TensorFlow.js
+
+    const modelUrl = "model/model.json"; // Adjust the path as needed
+    let model;
+    async function loadModel() {
+      try {
+        model = await tf.loadLayersModel(modelUrl);
+        console.log("Model loaded successfully.");
+      } catch (error) {
+        console.error("Error loading model:", error);
+      }
+    }
+    loadModel();
+    const canvas = document.getElementById("sketchpad");
+    const context = canvas.getContext("2d");
+    context.lineWidth = 4;
+    context.lineCap = "round";
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    let isIdle = true;
+    function drawStart(event) {
+      const rect = canvas.getBoundingClientRect();
+      context.beginPath();
+      context.moveTo(event.clientX - rect.left, event.clientY - rect.top);
+      isIdle = false;
+    }
+    function drawMove(event) {
+      if (isIdle) return;
+      const rect = canvas.getBoundingClientRect();
+      context.lineTo(event.clientX - rect.left, event.clientY - rect.top);
+      context.stroke();
+    }
+    function drawEnd() {
+      isIdle = true;
+
+      // Make prediction
+      if (typeof model !== "undefined") {
+        makePrediction(canvas, model);
+      } else {
+        console.error("Model is not defined. Please load the model first.");
+      }
+    }
+    // Tie methods to events
+    canvas.addEventListener("mousedown", drawStart, false);
+    canvas.addEventListener("mousemove", drawMove, false);
+    canvas.addEventListener("mouseup", drawEnd, false);
+
+    async function makePrediction(canvas, model) {
+      const drawTensor = tf.browser.fromPixels(canvas, 1);
+      const resize = tf.image.resizeNearestNeighbor(drawTensor, [28, 28], true);
+      const batched = resize.expandDims();
+      const results = await model.predict(batched);
+      const predictions = await results.array();
+      // Display
+      displayResults(predictions[0]);
+      // Cleanup
+      tf.dispose([drawTensor, resize, batched, results]);
+    }
+
+    function displayResults(predictions) {
+      // Get Scores
+      const ravenclaw = predictions[0] + predictions[2] + predictions[3];
+      const gryffindor = predictions[1] + predictions[9];
+      const hufflepuff = predictions[4] + predictions[8];
+      const slytherin = predictions[6] + predictions[7];
+      const deatheater = predictions[5];
+      document.getElementById("ravenclaw").style.opacity = ravenclaw;
+      document.getElementById("gryffindor").style.opacity = gryffindor;
+      document.getElementById("hufflepuff").style.opacity = hufflepuff;
+      document.getElementById("slytherin").style.opacity = slytherin;
+      // Harry Potter fans will enjoy this one
+      if (deatheater > 0.9) {
+        alert("DEATH EATER DETECTED!!!");
+      }
+    }
+
+    function cleanCanvas() {
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      document.getElementById("ravenclaw").style.opacity = 0;
+      document.getElementById("gryffindor").style.opacity = 0;
+      document.getElementById("hufflepuff").style.opacity = 0;
+      document.getElementById("slytherin").style.opacity = 0;
+    }
+    document
+      .querySelector("button")
+      .addEventListener("click", cleanCanvas, false);
+    // Cleanup on unload
+    window.addEventListener("beforeunload", () => {
+      tf.disposeVariables();
+      tf.dispose();
+      console.log("TensorFlow.js variables disposed.");
+    });
+  </script>
+</html>
