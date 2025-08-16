@@ -19,6 +19,11 @@ const main = async () => {
         );
       },
     },
+    earlyStopping: tf.callbacks.earlyStopping({
+      monitor: "val_loss",
+      patience: 5,
+      mode: "max",
+    }),
   });
 
   //Save the model
