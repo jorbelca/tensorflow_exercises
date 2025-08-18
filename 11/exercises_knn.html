@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      #examples {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #examples p {
+        font-weight: bold;
+        padding: 10px;
+      }
+
+      .example {
+        height: 14vw;
+      }
+
+      #test {
+        height: 30vw;
+      }
+
+      #testContainer {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.7.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.2"></script>
+    <script>
+      const classifier = knnClassifier.create();
+      let mobileNet;
+
+      function addExample(domID, classID) {
+        const features = mobileNet.infer(document.getElementById(domID), true);
+        classifier.addExample(features, classID);
+      }
+
+      async function runKNN() {
+        // Use MobileNet to get features
+        mobileNet = await mobilenet.load();
+
+        // Add examples of two classes
+        addExample("bunny1", 0);
+        addExample("bunny2", 0);
+        addExample("bunny3", 0);
+        addExample("sport1", 1);
+        addExample("sport2", 1);
+        addExample("sport3", 1);
+
+        // Moment of truth
+        const testImage = document.getElementById("test");
+        const testFeature = mobileNet.infer(testImage, true);
+        const predicted = await classifier.predictClass(testFeature);
+        if (predicted.classIndex === 0) {
+          document.getElementById("result").innerText = "A Bunny";
+        } else {
+          document.getElementById("result").innerText = "A Sports Car";
+        }
+      }
+
+      runKNN();
+    </script>
+  </head>
+  <body>
+    <h1>KNN + MobileNet Classifier</h1>
+    <h2>Bunnies vs Sports Cars</h2>
+    <div id="examples">
+      <img id="bunny1" class="example" src="knn_data/bunny1.jpg" />
+      <img id="bunny2" class="example" src="knn_data/bunny2.jpg" />
+      <img id="bunny3" class="example" src="knn_data/bunny3.jpg" />
+      <p>VS</p>
+      <img id="sport1" class="example" src="knn_data/sport1.jpg" />
+      <img id="sport2" class="example" src="knn_data/sport2.jpg" />
+      <img id="sport3" class="example" src="knn_data/sport3.jpg" />
+    </div>
+    <div id="testContainer">
+      <p>AI believes the following photo is...</p>
+      <img id="test" class="test" src="knn_data/test.jpeg" />
+      <h2 id="result">???</h2>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@3.21.0/dist/tf-backend-wasm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/danfojs@1.2.0/lib/bundle.min.js"></script>
+    <title>Transfer Learning</title>
+  </head>
+  <body>
+    <script>
+      const numImages = 150; // between 1 and 150
+      // Variables compartidas
+      let chessTensor = null; // Tensor de imágenes
+      let Y = null; // Tensor de etiquetas
+
+      // Inicializa TFJS con backend WebGL y espera a que esté listo
+      (async () => {
+        try {
+          if (tf.getBackend() !== "webgl") {
+            await tf.setBackend("webgl");
+          }
+          await tf.ready();
+          console.log("TF backend:", tf.getBackend());
+        } catch (e) {
+          console.warn(
+            "No se pudo inicializar WebGL; backend:",
+            tf.getBackend(),
+            e
+          );
+        }
+      })();
+
+      const chargeData = async () => {
+        console.log("Loading huge CSV - this will take a while");
+        // Carga completa y luego limita filas
+        const labels = await dfd.readCSV("chess_data/chess_labels.csv");
+        const chessImages = await dfd.readCSV("chess_data/chess_images.csv");
+        const rows = Math.min(numImages, labels.shape[0]);
+        const labelsHead = labels.head(rows);
+        const imagesHead = chessImages.head(rows);
+        Y = labelsHead.tensor;
+        chessTensor = imagesHead.tensor.reshape([rows, 224, 224, 3]).div(255);
+        console.log("Finished loading CSVs", chessTensor.shape, Y.shape);
+      };
+
+      const loadModel = async () => {
+        // Load feature model
+        console.log("Loading feature model");
+        const featureModel = await tf.loadGraphModel(
+          "https://www.kaggle.com/models/google/mobilenet-v2/TfJs/130-224-feature-vector/3",
+          { fromTFHub: true }
+        );
+
+        const featureX = featureModel.predict(chessTensor);
+        // Push data through feature detection
+        console.log(`Features stack ${featureX.shape}`);
+        return featureX;
+      };
+
+      const createModel = async (featureX) => {
+        // Create NN
+        const transferModel = tf.sequential({
+          layers: [
+            tf.layers.dense({
+              inputShape: [featureX.shape[1]],
+              units: 64,
+              activation: "relu",
+            }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: 6, activation: "softmax" }),
+          ],
+        });
+        transferModel.compile({
+          optimizer: "adam",
+          loss: "categoricalCrossentropy",
+          metrics: ["accuracy"],
+        });
+        const earlyStopping = tf.callbacks.earlyStopping({
+          monitor: "val_acc",
+          patience: 20,
+        });
+        await transferModel.fit(featureX, Y, {
+          validationSplit: 0.15,
+          epochs: 400,
+          batchSize: 8, // Batch size más pequeño
+          shuffle: true,
+          callbacks: { onEpochEnd: console.log, earlyStopping: earlyStopping },
+        });
+      };
+
+      const main = async () => {
+        await chargeData();
+        const featureX = await loadModel();
+        await createModel(featureX);
+      };
+      main()
+        .then(() => {
+          console.log("Successfully transfered trained the model!");
+        })
+        .catch((err) => {
+          console.error("Error loading data:", err);
+        });
+    </script>
+  </body>
+</html>

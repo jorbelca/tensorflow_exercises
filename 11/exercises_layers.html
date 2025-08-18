@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@3.21.0/dist/tf-backend-wasm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/danfojs@1.2.0/lib/bundle.min.js"></script>
+    <title>Transfer Learning</title>
+  </head>
+  <body>
+    <script>
+      const numImages = 150; // between 1 and 150
+      // Variables compartidas
+      let chessTensor = null; // Tensor de imágenes
+      let Y = null; // Tensor de etiquetas
+
+      // Inicializa TFJS con backend WebGL y espera a que esté listo
+      (async () => {
+        try {
+          if (tf.getBackend() !== "webgl") {
+            await tf.setBackend("webgl");
+          }
+          await tf.ready();
+          console.log("TF backend:", tf.getBackend());
+        } catch (e) {
+          console.warn(
+            "No se pudo inicializar WebGL; backend:",
+            tf.getBackend(),
+            e
+          );
+        }
+      })();
+
+      const chargeData = async () => {
+        console.log("Loading huge CSV - this will take a while");
+        // Carga completa y luego limita filas
+        const labels = await dfd.readCSV("chess_data/chess_labels.csv");
+        const chessImages = await dfd.readCSV("chess_data/chess_images.csv");
+        const rows = Math.min(numImages, labels.shape[0]);
+        const labelsHead = labels.head(rows);
+        const imagesHead = chessImages.head(rows);
+        Y = labelsHead.tensor.toFloat();
+        // MobileNet v1: normalización esperada [-1, 1]
+        chessTensor = imagesHead.tensor
+          .reshape([rows, 224, 224, 3])
+          .div(127.5)
+          .sub(1);
+        console.log("Finished loading CSVs", chessTensor.shape, Y.shape);
+        // Diagnóstico rápido de etiquetas + fallback a one-hot limpio
+        try {
+          const colSums = await tf.sum(Y, 0).data();
+          const rowSumsT = tf.sum(Y, 1);
+          const [rowMin, rowMax] = await Promise.all([
+            rowSumsT.min().data(),
+            rowSumsT.max().data(),
+          ]);
+          console.log("Label column sums:", Array.from(colSums));
+          console.log("Row sum min/max:", rowMin[0], rowMax[0]);
+          const depth = Y.shape[1] || 1;
+          if (depth > 1 && (rowMin[0] < 0.99 || rowMax[0] > 1.01)) {
+            console.warn(
+              "Las etiquetas no parecen one-hot; convirtiendo con argMax→oneHot"
+            );
+            const yIdx = Y.argMax(1);
+            Y.dispose();
+            Y = tf.oneHot(yIdx, depth).toFloat();
+            yIdx.dispose();
+          }
+          rowSumsT.dispose();
+        } catch {}
+      };
+
+      const loadModel = async () => {
+        // Carga MobileNet v1 (Layers) local y recorta hasta conv_pw_13_relu
+        console.log("Loading feature model (Layers)");
+        const featureModel = await tf.loadLayersModel("mobilenet/model.json");
+        console.log("ORIGINAL MODEL");
+        featureModel.summary();
+
+        const lastLayer = featureModel.getLayer("conv_pw_13_relu");
+        const shavedModel = tf.model({
+          inputs: featureModel.inputs,
+          outputs: lastLayer.output,
+          name: "mobilenet_shaved",
+        });
+        // Congelar la base para entrenamiento de capa superior
+        shavedModel.trainable = false;
+
+        // No dispongas featureModel aquí: comparte pesos con shavedModel y podría invalidarlos.
+
+        // Extraer features desde la capa recortada, con fallback a WASM si WebGL falla
+        let featureX;
+        try {
+          featureX = tf.tidy(() => shavedModel.predict(chessTensor));
+        } catch (err) {
+          console.warn("WebGL predict failed, trying WASM backend...", err);
+          if (tf.wasm && tf.wasm.setWasmPaths) {
+            tf.wasm.setWasmPaths(
+              "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@3.21.0/dist/"
+            );
+          }
+          await tf.setBackend("wasm");
+          await tf.ready();
+          console.log("TF backend:", tf.getBackend());
+          featureX = tf.tidy(() => shavedModel.predict(chessTensor));
+        }
+        console.log("SHAVED DOWN MODEL");
+        shavedModel.summary();
+        console.log(`Features stack ${featureX.shape}`);
+
+        return { featureX, shavedModel };
+      };
+
+      const createModel = async (featureX, shavedModel) => {
+        const numClasses = Y.shape[1] || 1;
+        const isSparse = numClasses === 1;
+        // Clasificador sobre las features recortadas
+        const transferModel = tf.sequential({
+          layers: [
+            tf.layers.globalAveragePooling2d({
+              inputShape: featureX.shape.slice(1),
+            }),
+            tf.layers.batchNormalization(),
+            tf.layers.dense({ units: 128, activation: "relu" }),
+            tf.layers.dropout({ rate: 0.4 }),
+            tf.layers.dense({ units: numClasses, activation: "softmax" }),
+          ],
+        });
+        const optimizer = tf.train.adam(1e-4);
+        transferModel.compile({
+          optimizer,
+          loss: isSparse
+            ? "sparseCategoricalCrossentropy"
+            : "categoricalCrossentropy",
+          metrics: ["accuracy"],
+        });
+
+        const earlyStopping = tf.callbacks.earlyStopping({
+          monitor: "val_acc",
+          patience: 80,
+        });
+        const logCb = new tf.CustomCallback({
+          onEpochEnd: (epoch, logs) => console.log(`epoch ${epoch}`, logs),
+        });
+
+        // Entrena solo el clasificador con features precomputadas
+        await transferModel.fit(featureX, Y, {
+          validationSplit: 0.15,
+          epochs: 80,
+          batchSize: 8,
+          shuffle: true,
+          callbacks: [earlyStopping, logCb],
+        });
+
+        // Unificar modelos para inferencia futura
+        const combo = tf.sequential();
+        combo.add(shavedModel);
+        combo.add(transferModel);
+        combo.compile({
+          optimizer,
+          loss: isSparse
+            ? "sparseCategoricalCrossentropy"
+            : "categoricalCrossentropy",
+          metrics: ["accuracy"],
+        });
+        combo.summary();
+
+        return { transferModel, combo };
+      };
+
+      const main = async () => {
+        await chargeData();
+        const { featureX, shavedModel } = await loadModel();
+        await createModel(featureX, shavedModel);
+      };
+      main()
+        .then(() => {
+          console.log("Successfully transfered trained the model!");
+        })
+        .catch((err) => {
+          console.error("Error loading data:", err);
+        });
+    </script>
+  </body>
+</html>
