@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@3.21.0/dist/tf-backend-wasm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/danfojs@1.2.0/lib/bundle.min.js"></script>
+    <title>Challenge</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f8f9fa;
+        margin: 0;
+        padding: 0;
+      }
+      #drawspace {
+        margin: 32px auto;
+        max-width: 700px;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+        padding: 24px 32px 32px 32px;
+      }
+      button {
+        background: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 20px;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-bottom: 16px;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      #clear {
+        margin-bottom: 16px;
+        margin-right: 16px;
+      }
+      #trained {
+        margin-left: 12px;
+      }
+      #sketchpad {
+        display: block;
+        margin: 0 auto 24px auto;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 8px rgba(0, 0, 0, 0.07);
+      }
+      .results {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 24px;
+        gap: 24px;
+      }
+      .result {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #f1f3f4;
+        border-radius: 10px;
+        padding: 18px 14px 10px 14px;
+        min-width: 120px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+        font-size: 1.1rem;
+        font-weight: 500;
+        opacity: 0.5;
+        transition: opacity 0.3s;
+      }
+      .result .logo {
+        width: 64px;
+        height: 64px;
+        object-fit: contain;
+        margin-bottom: 10px;
+        border-radius: 6px;
+        background: #fff;
+        border: 1px solid #e0e0e0;
+      }
+    </style>
+  </head>
+  <body>
+    <button onclick="main()">Train Model</button>
+    <div id="drawspace">
+      <button style="display: flex" id="clear">Clear</button>
+      <span
+        style="
+          display: none;
+          background: #d4edda;
+          color: #155724;
+          border: 1px solid #c3e6cb;
+          border-radius: 8px;
+          padding: 6px 16px;
+          font-weight: bold;
+          margin-left: 16px;
+          vertical-align: middle;
+        "
+        id="trained"
+      >
+        Model Trained
+      </span>
+
+      <canvas
+        id="sketchpad"
+        onSelectStart="this.style.cursor='crosshair'; return false;"
+        width="500"
+        height="500"
+        style="border: 1px solid #777"
+      ></canvas>
+
+      <div class="results">
+        <div class="result" id="starfleet">
+          <img src="images/starfleet.png" class="logo" />
+          Starfleet
+        </div>
+        <div class="result" id="klingon">
+          <img src="images/klingon.png" class="logo" />
+          Klingon
+        </div>
+        <div class="result" id="ferengi">
+          <img src="images/ferengi.png" class="logo" />
+          Ferengi
+        </div>
+      </div>
+    </div>
+  </body>
+
+  <script>
+    let dataTensor = null; // Tensor de imágenes [N,H,W,C]
+    let labelsTensor = null; // Tensor de etiquetas one-hot [N,numClasses]
+    let shavedModel = null; // Modelo base recortado para extracción de features
+    let numClasses = 0;
+    let modelTrained = null;
+    let canvas = document.getElementById("sketchpad");
+    let trainedSpan = document.getElementById("trained");
+
+    // Placeholder for challenge logic
+    console.log("Challenge script loaded");
+    // You can add your challenge logic here
+    //1.Load the dataset
+    // Inicializa backend con fallback
+    (async () => {
+      try {
+        if (tf.getBackend() !== "webgl") {
+          await tf.setBackend("webgl");
+        }
+        await tf.ready();
+        console.log("TF backend:", tf.getBackend());
+      } catch (e) {
+        console.warn("WebGL init failed, trying WASM", e);
+        if (tf.wasm && tf.wasm.setWasmPaths) {
+          tf.wasm.setWasmPaths(
+            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@3.21.0/dist/"
+          );
+        }
+        await tf.setBackend("wasm");
+        await tf.ready();
+        console.log("TF backend:", tf.getBackend());
+      }
+    })();
+
+    const loadDataset = async () => {
+      console.log("Loading dataset...");
+      // Example: Load a CSV file
+      const data = await dfd.readCSV("images.csv");
+      const labels = await dfd.readCSV("labels.csv");
+      // Process the data as needed
+      console.log("Data shape:", data.shape);
+      console.log("Labels shape:", labels.shape);
+      // Example: Convert to tensors if needed
+      const rows = labels.shape[0];
+      dataTensor = data.tensor.toFloat().reshape([rows, 28, 28, 1]).div(255);
+      // Asegura etiquetas one-hot
+      if (labels.shape.length === 2 && labels.shape[1] > 1) {
+        labelsTensor = labels.tensor.toFloat();
+        numClasses = labels.shape[1];
+      } else {
+        const idx = labels.tensor.reshape([rows]);
+        const maxIdx = (await idx.max().data())[0];
+        numClasses = Math.max(2, Math.floor(maxIdx) + 1);
+        labelsTensor = tf.oneHot(idx.toInt(), numClasses).toFloat();
+        idx.dispose();
+      }
+      // Aumento simple: flip horizontal duplica el dataset
+      try {
+        const flipped = tf.image.flipLeftRight(dataTensor);
+        dataTensor = tf.concat([dataTensor, flipped], 0);
+        labelsTensor = labelsTensor
+          ? tf.concat([labelsTensor, labelsTensor], 0)
+          : labelsTensor;
+      } catch (e) {
+        console.warn("Flip augmentation not applied:", e);
+      }
+
+      console.log("Data tensor shape:", dataTensor.shape);
+      console.log(
+        "Labels tensor shape:",
+        labelsTensor.shape,
+        "numClasses:",
+        numClasses
+      );
+      // Log the dataset loaded
+      console.log("Dataset loaded", dataTensor.shape, labelsTensor.shape);
+    };
+
+    //2.Load the model
+    const loadModel = async () => {
+      console.log("Loading model...");
+      // Example: Load a pre-trained model
+      const model = await tf.loadLayersModel("sorting_hat/model.json");
+
+      const layer = model.getLayer("max_pooling2d_MaxPooling2D3");
+      shavedModel = tf.model({
+        inputs: model.inputs,
+        outputs: layer.output,
+      });
+
+      const feats = shavedModel.predict(dataTensor);
+      console.log(`Feature tensor shape: ${feats.shape}`);
+
+      return { model, feats };
+    };
+
+    //3.Transfer learning the model
+
+    const transferLearn = async (feats, labelsTensor) => {
+      console.log("Starting transfer learning...");
+      const transferModel = tf.sequential({
+        layers: [
+          tf.layers.globalAveragePooling2d({
+            inputShape: feats.shape.slice(1),
+          }),
+          tf.layers.batchNormalization(),
+          tf.layers.dense({ units: 128, activation: "relu" }),
+          tf.layers.dropout({ rate: 0.4 }),
+          tf.layers.dense({ units: numClasses, activation: "softmax" }),
+        ],
+      });
+
+      // Example: Compile the model
+      const optimizer = tf.train.adam(1e-4);
+      transferModel.compile({
+        optimizer,
+        loss: "categoricalCrossentropy",
+        metrics: ["accuracy"],
+      });
+      // Example: Train the model
+      const es = tf.callbacks.earlyStopping({
+        monitor: "val_acc",
+        patience: 30,
+      });
+      const logCb = new tf.CustomCallback({
+        onEpochEnd: (epoch, logs) => console.log(`Epoch ${epoch}`, logs),
+      });
+      await transferModel.fit(feats, labelsTensor, {
+        epochs: 100,
+        batchSize: 16,
+        validationSplit: 0.1,
+        shuffle: true,
+        callbacks: [es, logCb],
+      });
+      window.transferModel = transferModel;
+      window.shaved = shavedModel;
+      trainedSpan.style.display = "inline";
+      console.log("Transfer learning completed");
+    };
+
+    const main = async () => {
+      await loadDataset();
+      const { feats } = await loadModel();
+      await transferLearn(feats, labelsTensor);
+    };
+
+    function displayResults(predictions) {
+      document.getElementById("ferengi").style.opacity = predictions[0];
+      document.getElementById("klingon").style.opacity = predictions[1];
+      document.getElementById("starfleet").style.opacity = predictions[2];
+    }
+
+    async function makePrediction(canvas) {
+      const drawTensor = tf.browser.fromPixels(canvas, 1);
+      const resize = tf.image.resizeNearestNeighbor(drawTensor, [28, 28], true);
+
+      const batched = resize.expandDims();
+      const resultFeatures = await window.shaved.predict(batched);
+      const results = await window.transferModel.predict(resultFeatures);
+      const predictions = await results.array();
+
+      // Display
+      displayResults(predictions[0]);
+      // Cleanup
+      tf.dispose([drawTensor, resize, batched, results, resultFeatures]);
+    }
+
+    const context = canvas.getContext("2d");
+    context.lineWidth = 14;
+    context.lineCap = "round";
+    let isIdle = true;
+
+    function drawStart(event) {
+      context.beginPath();
+      context.moveTo(
+        event.pageX - canvas.offsetLeft,
+        event.pageY - canvas.offsetTop
+      );
+      isIdle = false;
+    }
+    function drawMove(event) {
+      if (isIdle) return;
+      context.lineTo(
+        event.pageX - canvas.offsetLeft,
+        event.pageY - canvas.offsetTop
+      );
+      context.stroke();
+    }
+    function drawEnd(event) {
+      isIdle = true;
+      makePrediction(canvas);
+    }
+    function touchStart(event) {
+      drawStart(event.touches[0]);
+    }
+    function touchMove(event) {
+      drawMove(event.touches[0]);
+      event.preventDefault();
+    }
+    function touchEnd(event) {
+      drawEnd(event.changedTouches[0]);
+    }
+
+    function clean() {
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      displayResults(new Array(10).fill(1));
+    }
+
+    canvas.addEventListener("touchstart", touchStart, false);
+    canvas.addEventListener("touchmove", touchMove, false);
+    canvas.addEventListener("touchend", touchEnd, false);
+
+    canvas.addEventListener("mousedown", drawStart, false);
+    canvas.addEventListener("mousemove", drawMove, false);
+    canvas.addEventListener("mouseup", drawEnd, false);
+    document.getElementById("clear").onclick = clean;
+  </script>
+</html>
