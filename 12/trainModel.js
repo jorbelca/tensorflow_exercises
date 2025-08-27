@@ -4,6 +4,7 @@ const inputShape = [12, 12, 1];
 const epochs = 20;
 const testSplit = 0.05;
 let diceData;
+const logsContainer = document.getElementById("logs");
 
 // NUEVO: promesa para esperar a que se cargue diceData
 let resolveDiceDataReady;
@@ -123,9 +124,18 @@ const trainModel = async (data) => {
         patience: 5,
       }),
       onEpochEnd: (epoch, logs) => {
-        console.log(
-          `Epoch ${epoch + 1}: loss = ${logs.loss}, accuracy = ${logs.acc}`
-        );
+        let logMessage = `Epoch ${
+          epoch + 1
+        } / ${epochs}: loss=${logs.loss.toFixed(
+          4
+        )}, val_loss=${logs.val_loss.toFixed(
+          4
+        )}, val_acc=${logs.val_acc.toFixed(4)}, accuracy=${(
+          logs.acc * 100
+        ).toFixed(2)}%`;
+        console.log(logMessage);
+        logsContainer.innerHTML += logMessage + "<br/>";
+        logsContainer.scrollTop = logsContainer.scrollHeight;
       },
       onTrainEnd: () => {
         console.log("Done Training");
@@ -139,7 +149,10 @@ const trainModel = async (data) => {
 async function evaluateResults(model, data) {
   const result = model.evaluate(data[2], data[3]);
   console.log("Test Loss", result[0].dataSync());
+
   console.log("Test Accuracy", result[1].dataSync());
+  logsContainer.innerHTML += result[1].dataSync() + "<br/>";
+  logsContainer.scrollTop = logsContainer.scrollHeight;
   tf.dispose(result);
 }
 
