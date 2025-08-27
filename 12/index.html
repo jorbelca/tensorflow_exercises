@@ -6,7 +6,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.0.0/dist/tf.min.js"></script>
     <title>Capstone Project</title>
     <link rel="stylesheet" href="styles.css" />
-    <script type="module">
+    <!-- <script type="module">
       import { createDataObject } from "./generateData.js";
       import { makeModel } from "./trainModel.js";
       import { dicify } from "./inference.js";
@@ -48,10 +48,10 @@
           document.getElementById("imageInputName").textContent = file.name;
         }
       });
-    </script>
+    </script> -->
   </head>
   <body>
-    <div class="container">
+    <!-- <div class="container">
       <div>
         <h1>Capstone Project: Dice Classifier (TensorFlow.js)</h1>
         <p class="explain">
@@ -162,6 +162,79 @@
           <button id="runBtn" class="btn" onclick="runInference();">Run</button>
         </div>
       </div>
+    </div> -->
+    <div class="container">
+      <div>
+        <p style="margin: 0">Image</p>
+
+        <input
+          type="file"
+          id="imageInput"
+          accept="image/*"
+          onchange="binarizeImage()"
+        />
+        <small id="imageInputName" class="file-name"></small>
+      </div>
+      <div class="media-grid">
+        <img
+          id="image"
+          src=""
+          width="140"
+          height="140"
+          alt="Imagen de entrada"
+        />
+        <canvas
+          id="display"
+          style="image-rendering: pixelated; width: 150px; height: 150px"
+          ;
+        ></canvas>
+      </div>
     </div>
+
+    <script type="module">
+      const canvas = document.getElementById("display");
+      const imgVisualizer = document.getElementById("image");
+      const imageInput = document.getElementById("imageInput");
+
+      const binarizeImage = async () => {
+        const file = imageInput.files[0];
+        if (!file) return;
+
+        // Mostrar miniatura en el <img>
+        const url = URL.createObjectURL(file);
+        imgVisualizer.src = url;
+        document.getElementById("imageInputName").textContent = file.name;
+
+        try {
+          // Crear ImageBitmap a partir del archivo y procesar con TFJS
+          const bitmap = await createImageBitmap(file);
+
+          // Asegurar que el canvas tenga el tamaño del bitmap para que la miniatura sea nítida
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+
+          tf.tidy(() => {
+            const imgTensor = tf.browser.fromPixels(bitmap, 1).toFloat();
+
+            // Binarización simple por umbral
+            const threshold = 65;
+            const ones = tf.onesLike(imgTensor);
+            const zeros = tf.zerosLike(imgTensor);
+            const binarized = tf.where(
+              tf.less(imgTensor, threshold),
+              zeros,
+              ones
+            );
+
+            // Pintar resultado en el canvas
+            tf.browser.toPixels(binarized, canvas);
+          });
+        } finally {
+          // Liberar object URL después de un pequeño retraso para que <img> pueda usarlo
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+      };
+      window.binarizeImage = binarizeImage;
+    </script>
   </body>
 </html>

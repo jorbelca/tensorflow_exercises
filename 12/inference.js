@@ -1,11 +1,18 @@
 const diceData = await fetch("./data.json").then((res) => res.json());
 const numDice = 150;
 const preSize = numDice * 10;
+const thr = 0.5;
 
 const cutData = async () => {
-  const img = document.getElementById("image");
-  const imgTensor = tf.browser.fromPixels(img, 1);
-  const resized = tf.image.resizeNearestNeighbor(imgTensor, [preSize, preSize]);
+  const g = tf.tidy(() => {
+    const img = document.getElementById("image");
+    const imgTensor = tf.browser.fromPixels(img, 1).toFloat().div(255);
+    const bin = imgTensor.greater(thr).toFloat();
+    const mean = bin.mean().dataSync()[0];
+    const binAdj = mean < 0.5 ? tf.sub(1, bin) : bin;
+    return binAdj;
+  });
+  const resized = tf.image.resizeNearestNeighbor(g, [preSize, preSize]);
   const cutSize = numDice;
   const heightCuts = tf.split(resized, cutSize);
   const grid = heightCuts.map((sliver) => tf.split(sliver, cutSize, 1));
