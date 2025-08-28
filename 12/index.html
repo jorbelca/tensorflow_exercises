@@ -11,11 +11,6 @@
       import { makeModel } from "./trainModel.js";
       import { dicify } from "./inference.js";
 
-      // Exponer funciones usadas por manejadores inline en el HTML
-      window.createDataObject = createDataObject;
-      window.dicify = dicify;
-      window.makeModel = makeModel;
-
       // Nuevo: envoltorio para gestionar UI durante la inferencia
       window.runInference = async function runInference() {
         const btn = document.getElementById("runBtn");
@@ -38,6 +33,22 @@
         logsContent.hidden = expanded;
       });
 
+      // Mostrar y actualizar el valor del slider "epochs"
+      const epochsSlider = document.getElementById("epochs");
+      const epochsValue = document.getElementById("epochsValue");
+      if (epochsSlider && epochsValue) {
+        // Inicializar visualmente y para accesibilidad
+        epochsValue.textContent = epochsSlider.value;
+        epochsSlider.setAttribute("aria-valuenow", epochsSlider.value);
+
+        // Actualizar en tiempo real mientras el usuario mueve el slider
+        epochsSlider.addEventListener("input", (e) => {
+          const v = e.target.value;
+          epochsValue.textContent = v;
+          epochsSlider.setAttribute("aria-valuenow", v);
+        });
+      }
+
       // Carga de imagen de prueba con previsualización
       document.getElementById("imageInput")?.addEventListener("change", (e) => {
         const file = (e.target.files || [])[0];
@@ -48,6 +59,18 @@
           document.getElementById("imageInputName").textContent = file.name;
         }
       });
+
+      const train = () => {
+        logsContent.hidden = false;
+        const epochs = parseInt(epochsSlider.value);
+        makeModel(epochs);
+      };
+
+      // Exponer funciones usadas por manejadores inline en el HTML
+      window.createDataObject = createDataObject;
+      window.dicify = dicify;
+      window.makeModel = makeModel;
+      window.train = train;
     </script>
   </head>
   <body>
@@ -96,9 +119,30 @@
         </p>
         <input type="file" id="fileInput" accept=".json" />
         <br />
-        <button class="btn btn-secondary" onclick="makeModel();">
-          Train Model
-        </button>
+        <h5>Train the Model</h5>
+        <button class="btn btn-secondary" onclick="train()">Train</button>
+        <input
+          type="range"
+          id="epochs"
+          min="1"
+          max="100"
+          value="20"
+          style="vertical-align: middle"
+        />
+
+        <!-- Mostrar el valor actual del slider -->
+        <span
+          id="epochsValue"
+          aria-live="polite"
+          style="margin-left: 8px; font-size: 0.85rem"
+          >20</span
+        ><span
+          for="epochs"
+          style="vertical-align: middle; margin-left: 8px; font-size: 0.75rem"
+          >Epochs</span
+        >
+        <br />
+
         <p class="explain">
           Training may take a few minutes depending on the data size and your
           device. The download will include two files: a <u>JSON</u> file with

@@ -1,7 +1,7 @@
 import { shuffleCombo } from "./helper.js";
 
 const inputShape = [12, 12, 1];
-const epochs = 20;
+let epochs = 20;
 const testSplit = 0.05;
 let diceData;
 const logsContainer = document.getElementById("logs");
@@ -156,12 +156,13 @@ async function evaluateResults(model, data) {
   tf.dispose(result);
 }
 
-async function makeModel() {
+async function makeModel(inEpochs) {
   // NUEVO: esperar a que exista diceData antes de continuar
   if (!diceData) {
     console.log("Esperando a que se cargue el archivo con los datos...");
     await diceDataReady;
   }
+  epochs = inEpochs || 20;
   const data = await prepData();
   const model = await trainModel(data);
   evaluateResults(model, data);

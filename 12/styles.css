@@ -29,6 +29,7 @@ h1 {
   padding: 10px;
   border: 1px solid #ccc;
   border-radius: 5px;
+  font-size: 0.8rem;
 }
 #logs-content {
   padding: 10px;
